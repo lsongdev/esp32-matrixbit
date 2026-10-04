@@ -60,7 +60,7 @@ matrixbit::rgb().show(); // 灯珠索引 0、1、2
 
 ## 按键、蜂鸣器、模拟量、触摸
 
-- `buttonA()` / `buttonB()`：返回是否按下的实时状态，没有自动消抖、长按或边沿检测。应用自行处理；诊断程序提供25 ms消抖示例。
+- `buttonA()` / `buttonB()`：返回是否按下的实时状态，没有自动消抖、长按或边沿检测。应用自行处理；Demo 中提供了 25 ms 消抖示例。
 - `beginBuzzer()`：初始化 GPIO16，并占用 LEDC channel 0。
 - `beep(uint16_t frequency = 880, uint16_t durationMs = 80)`：频率 Hz，时长 ms，调用期间阻塞；使用前先调用 `beginBuzzer()`。
 - `startTone(uint16_t frequency)` / `stopTone()`：立即开始/停止发声。配合 `millis()` 自行实现不阻塞的定时鸣叫。

@@ -1,61 +1,56 @@
 # Matrix:bit 资源使用说明
 
-适用于本项目的经典 ESP32 Matrix:bit。应用只需 `#include "matrixbit.h"`，在 `setup()` 中调用 `matrixbit::begin()`。依赖由 PlatformIO 自动安装：Adafruit SSD1306、Adafruit NeoPixel，以及 SSD1306 的 GFX/BusIO 依赖。
+适用于本项目的经典 ESP32 Matrix:bit。应用只需 `#include "matrixbit.h"`；板级 API 保持轻量，不重新包装 Arduino 生态。
 
-## 最小示例
+依赖由 PlatformIO 自动安装：Adafruit SSD1306、Adafruit NeoPixel，以及 SSD1306 的 GFX/BusIO 依赖。
+
+## 初始化
+
+`matrixbit::begin()` 只初始化共享资源：A/B 按键、光线/麦克风 ADC，以及 I2C（SDA=23 / SCL=22、100 kHz、25 ms timeout）。它不会自动占用 OLED、RGB、蜂鸣器、IMU 或磁力计。
+
+需要什么就显式初始化什么：
 
 ```cpp
 #include "matrixbit.h"
 
 void setup() {
   Serial.begin(115200);
-  const auto result = matrixbit::begin();
-  if (result.display) {
-    auto &screen = matrixbit::display();
-    screen.println("Hello Matrix:bit");
-    screen.display();
-  }
-  matrixbit::setRGB(0, 32, 0);
-}
+  matrixbit::begin();
 
-void loop() {
-  matrixbit::ImuReading motion;
-  if (matrixbit::imu().read(motion)) {
-    Serial.printf("Z: %.3f g\n", motion.acceleration.z);
+  matrixbit::beginRGB();
+  matrixbit::beginBuzzer();
+  const bool oled = matrixbit::beginDisplay();
+  const bool imu = matrixbit::imu().begin();
+  const bool mag = matrixbit::magnetometer().begin();
+
+  if (oled) {
+    matrixbit::display().println("Hello Matrix:bit");
+    matrixbit::display().display();
   }
-  delay(20);
 }
 ```
 
-完整例子见 [src/main.cpp](../src/main.cpp)。以下接口均位于 `matrixbit` 命名空间。
-
-## 初始化和硬件配置
-
-`InitResult begin(uint8_t brightness = 32)` 初始化按键、ADC、蜂鸣器、I2C、RGB、OLED、IMU 和磁力计；返回 `.display`、`.imu`、`.magnetometer` 三个独立的成功标志。某个 I2C 设备失败不会阻止其他设备初始化。OLED 成功表示地址应答和库初始化成功，像素显示效果仍需观察屏幕确认。
-
-调用一次即可；应在 Arduino `setup()` 内调用，不要在全局对象构造阶段调用。它不启动串口、Wi-Fi 或蓝牙。`display()`、`rgb()`、`imu()`、`magnetometer()` 返回共享对象引用，头文件可被多个源文件引入。
-
-初始化配置：I2C SDA=23 / SCL=22、100 kHz、传输超时 25 ms；ADC 12 位、11 dB 衰减；蜂鸣器占用 LEDC 通道 0。使用其他外设时注意这些共享配置。当前代码使用 Arduino ESP32 2.x 的 LEDC API；迁移 3.x 时需要调整蜂鸣器接口。
+建议在 Arduino `setup()` 内调用一次 `matrixbit::begin()`。它不启动串口、Wi-Fi 或蓝牙。
 
 | 资源 | 连接 / 配置 | 接口 |
 | --- | --- | --- |
-| OLED | 0x3C，SSD1306，128×64 | `display()` |
-| RGB | GPIO17，3 颗，GRB / 800 kHz | `rgb()`、`setRGB(r,g,b)` |
+| OLED | 0x3C，SSD1306，128×64 | `beginDisplay()`、`display()` |
+| RGB | GPIO17，3 颗，GRB / 800 kHz | `beginRGB()`、`rgb()`、`setRGB()` |
 | 按键 A / B | GPIO0 / GPIO2，低电平按下 | `buttonA()`、`buttonB()` |
-| 蜂鸣器 | GPIO16，LEDC 通道0 | `beep()`、`startTone()`、`stopTone()` |
+| 蜂鸣器 | GPIO16，LEDC 通道0 | `beginBuzzer()`、`beep()`、`startTone()`、`stopTone()` |
 | IMU | 0x6B，QMI8658，ID=0x05 | `imu()` |
 | 磁力计 | 0x30，自动识别芯片 | `magnetometer()` |
 | 光线 | GPIO39，ADC 原始值 | `light()` |
 | 麦克风 | GPIO36，ADC 原始值 | `sound()`、`soundLevel()` |
-| 触摸 P/Y/T/H/O/N | GPIO27/14/12/13/15/4 | `touch(TouchPad::P)` 等 |
+| 触摸 P/Y/T/H/O/N | GPIO27/14/12/13/15/4 | `touch()`、`touchPin()` |
 
-GPIO0、GPIO2 是启动配置引脚，复位或上电时避免按住按键。引脚和地址也可以直接通过 `pin::button_a`、`pin::light`、`i2c::imu` 等常量访问；屏幕尺寸与灯珠数量为 `screen_width`、`screen_height`、`rgb_count`。
+GPIO0、GPIO2、GPIO12、GPIO15 都是 ESP32 strapping pins。板载电路按设计使用即可；如果外接电路，复位或上电时不要强制到不兼容的电平。
 
 ## 显示屏和 RGB
 
-`display()` 返回 `Adafruit_SSD1306&`，可使用原库的文字、线条、图形 API。`clearDisplay()` 和绘图函数只修改内存，调用 `display().display()` 才刷新屏幕；清屏后按需要 `setCursor(0, 0)`。内置默认字体不支持中文。
+`beginDisplay()` 探测并初始化 OLED，成功返回 `true`。`display()` 返回 `Adafruit_SSD1306&`，可使用原库的文字、线条、图形 API。`clearDisplay()` 和绘图函数只修改内存，调用 `display().display()` 才刷新屏幕；清屏后按需要 `setCursor(0, 0)`。内置默认字体不支持中文。
 
-`setRGB(red, green, blue)` 设置全部三颗灯并立即显示，颜色参数 0–255。`begin(brightness)` 的亮度范围也是 0–255，默认32。分别控制灯珠时使用原库：
+`beginRGB(brightness)` 初始化 RGB，亮度范围 0–255，默认32。`setRGB(red, green, blue)` 设置全部三颗灯并立即显示，颜色参数 0–255。分别控制灯珠时使用原库：
 
 ```cpp
 matrixbit::rgb().clear();
@@ -65,8 +60,9 @@ matrixbit::rgb().show(); // 灯珠索引 0、1、2
 
 ## 按键、蜂鸣器、模拟量、触摸
 
-- `buttonA()` / `buttonB()`：返回是否按下的实时状态，没有自动消抖、长按或边沿检测。应用自行处理；诊断程序提供25 ms消抖示例。
-- `beep(uint16_t frequency = 880, uint16_t durationMs = 80)`：频率 Hz，时长 ms，调用期间阻塞。
+- `buttonA()` / `buttonB()`：返回是否按下的实时状态，没有自动消抖、长按或边沿检测。应用自行处理；Demo 中提供了 25 ms 消抖示例。
+- `beginBuzzer()`：初始化 GPIO16，并占用 LEDC channel 0。
+- `beep(uint16_t frequency = 880, uint16_t durationMs = 80)`：频率 Hz，时长 ms，调用期间阻塞；使用前先调用 `beginBuzzer()`。
 - `startTone(uint16_t frequency)` / `stopTone()`：立即开始/停止发声。配合 `millis()` 自行实现不阻塞的定时鸣叫。
 - `light()` / `sound()`：返回0–4095的ADC值，不是照度 lux 或声压 dB，光照方向及阈值应按实际板子标定。
 - `soundLevel(uint16_t windowMs = 20)`：在采样窗口内返回最大值减最小值，单位仍为ADC计数；约每250 µs读取一次，调用期间阻塞。窗口为0返回0。
@@ -76,7 +72,7 @@ matrixbit::rgb().show(); // 灯珠索引 0、1、2
 
 ## IMU
 
-`imu().begin()` 可单独重新初始化；`ready()` 表示初始化成功，`chipId()` 返回读取到的器件ID。`matrixbit::begin()` 已调用初始化。
+`imu().begin()` 会验证器件 ID、执行 QMI8658 自身 soft reset，再写入确定的量程和 ODR 配置。ESP32 复位并不一定让 IMU 掉电，因此这里不依赖上一次程序留下的寄存器状态。`ready()` 表示初始化成功，`chipId()` 返回读取到的器件ID。
 
 ```cpp
 matrixbit::ImuReading motion;
@@ -104,10 +100,10 @@ if (matrixbit::magnetometer().read(field)) {
 
 `i2cErrorCount()` 返回封装读写操作的累计传输错误数。扫描地址的预期NACK、未知芯片ID和无新数据不计为传输错误；错误计数为0不代表每次读取都有新数据。
 
-## 诊断固件
+## Demo
 
 ```sh
-pio run -e diagnostics -t upload --upload-port /dev/ttyACM0
+pio run -e demo -t upload --upload-port /dev/ttyACM0
 pio device monitor --port /dev/ttyACM0
 ```
 
@@ -125,7 +121,7 @@ A切换5页（概览、IMU、磁力计、模拟量、触摸）；B短鸣并重�
 | Wi-Fi | 扫描收到37–39个网络；未验证联网 |
 | 蓝牙 | 未验证 |
 
-Wi-Fi 使用ESP32原生扫描接口，应用仍可直接使用 Arduino `WiFi.h`；网络功能没有另加封装。
+Demo 的 Wi-Fi 扫描直接使用 Arduino `WiFi.scanNetworks(..., async=true)` / `scanComplete()`；网络功能没有加入 `matrixbit.h`。
 
 ## 参考资料
 

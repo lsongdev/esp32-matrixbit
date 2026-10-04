@@ -1,8 +1,8 @@
 # esp32-matrixbit
 
-A small PlatformIO project for the classic ESP32 Matrix:bit, with a header-only peripheral API.
+A small PlatformIO project for the classic ESP32 Matrix:bit, with a lightweight header-only board API.
 
-Include **[matrixbit.h](include/matrixbit.h)** and call `matrixbit::begin()` to initialize the OLED, three RGB LEDs, buttons, buzzer, IMU, magnetometer, analog inputs and touch inputs. OLED and RGB helpers expose the original Adafruit library objects for drawing and individual LED control.
+`matrixbit::begin()` initializes only shared GPIO, ADC and I2C resources. OLED, RGB, buzzer, IMU and magnetometer initialization stays explicit, so applications only claim the peripherals they actually use.
 
 **[资源和 API 使用文档（中文）](docs/matrixbit.md)** covers wiring, units, examples, initialization results and hardware verification status.
 
@@ -20,31 +20,31 @@ The default example displays sensor values, sets the RGB LEDs red while A is pre
 #include "matrixbit.h"
 
 void setup() {
-  const auto result = matrixbit::begin();
-  if (result.display) {
+  matrixbit::begin();
+  matrixbit::beginRGB();
+  matrixbit::beginBuzzer();
+
+  const bool oled = matrixbit::beginDisplay();
+  const bool imu = matrixbit::imu().begin();
+  const bool mag = matrixbit::magnetometer().begin();
+
+  if (oled) {
     matrixbit::display().println("Hello Matrix:bit");
     matrixbit::display().display();
   }
-  matrixbit::setRGB(0, 32, 0);
-}
 
-void loop() {
-  matrixbit::ImuReading motion;
-  if (matrixbit::imu().read(motion)) {
-    // acceleration in g, gyroscope in degrees/second, temperature in Celsius
-  }
-  delay(20);
+  matrixbit::setRGB(0, 32, 0);
 }
 ```
 
-## Hardware diagnostics
+## Demo
 
 ```sh
-pio run -e diagnostics -t upload --upload-port /dev/ttyACM0
+pio run -e demo -t upload --upload-port /dev/ttyACM0
 pio device monitor --port /dev/ttyACM0
 ```
 
-Press A to cycle status, IMU, magnetometer, analog and touch pages. B beeps and restarts the RGB cycle. Serial commands: `r` inverts the OLED briefly; `w` repeats the Wi-Fi scan.
+The separate demo exercises the whole board without putting UI state, Wi-Fi scanning or button debounce into the board API. Press A to cycle pages; B beeps and restarts the RGB cycle. Serial commands: `r` briefly inverts the OLED and `w` repeats the Wi-Fi scan.
 
 The connected board has a QMI8658 IMU and MMC5983MA magnetometer. The header also detects MMC5603NJ, but that variant has not been tested on hardware. Touch pad responses still need physical confirmation. See the documentation for complete verification results.
 
@@ -52,9 +52,9 @@ The connected board has a QMI8658 IMU and MMC5983MA magnetometer. The header als
 
 - `include/matrixbit.h`: wiring, shared peripheral objects and convenience functions.
 - `src/main.cpp`: example using a single include.
-- `src/diagnostics.cpp`: interactive resource diagnostics using the same API.
+- `src/demo.cpp`: interactive whole-board demo using the same API.
 - `docs/matrixbit.md`: resource documentation.
 
-PlatformIO uses `esp32dev` with Arduino ESP32 2.x. The attached ESP32 has 8 MB physical flash; the current standard board configuration uses a 4 MB layout. Dependencies are declared in `platformio.ini`.
+PlatformIO is pinned to `espressif32 7.1.3` and uses the standard `esp32dev` target with Arduino-ESP32 2.0.17. The attached ESP32 has 8 MB physical flash; the current standard board configuration uses a 4 MB layout. Dependencies are declared in `platformio.ini`.
 
-Buttons use boot-strapping GPIO0 and GPIO2; avoid holding them during reset or power-on. Board revisions can differ; verify wiring before using this header on another revision.
+GPIO0/GPIO2 (buttons) and GPIO12/GPIO15 (touch T/O) are ESP32 strapping pins. Avoid externally forcing them to incompatible levels during reset or power-on. Board revisions can differ; verify wiring before using this header on another revision.

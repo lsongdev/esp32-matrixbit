@@ -10,6 +10,8 @@ namespace matrixbit {
 namespace pin {
 constexpr uint8_t button_a = 0, button_b = 2, buzzer = 16, rgb = 17;
 constexpr uint8_t i2c_scl = 22, i2c_sda = 23, light = 39, microphone = 36;
+constexpr uint8_t touch_p = 27, touch_y = 14, touch_t = 12;
+constexpr uint8_t touch_h = 13, touch_o = 15, touch_n = 4;
 } // namespace pin
 namespace i2c {
 constexpr uint8_t magnetometer = 0x30, display = 0x3c, imu = 0x6b;
@@ -60,9 +62,16 @@ public:
     ready_ = false;
     id_ = 0;
     if (!detail::probe(i2c::imu) || !detail::read(i2c::imu, 0x00, &id_, 1) || id_ != 0x05) return false;
-    // QMI8658: auto increment, +/-2 g, +/-512 dps, 117.5 Hz.
-    if (!detail::write(i2c::imu, 0x08, 0x00) || !detail::write(i2c::imu, 0x02, 0x60) ||
-        !detail::write(i2c::imu, 0x03, 0x06) || !detail::write(i2c::imu, 0x04, 0x56) ||
+
+    // Reset the QMI8658 itself: an ESP32 reset does not necessarily power-cycle it.
+    if (!detail::write(i2c::imu, 0x60, 0xb0)) return false;
+    delay(20);
+    if (!detail::read(i2c::imu, 0x00, &id_, 1) || id_ != 0x05) return false;
+
+    // Auto increment, +/-2 g, +/-512 dps, 117.5 Hz.
+    if (!detail::write(i2c::imu, 0x02, 0x60) ||
+        !detail::write(i2c::imu, 0x03, 0x06) ||
+        !detail::write(i2c::imu, 0x04, 0x56) ||
         !detail::write(i2c::imu, 0x08, 0x03)) return false;
     uint8_t enabled = 0;
     ready_ = detail::read(i2c::imu, 0x08, &enabled, 1) && (enabled & 3) == 3;
@@ -164,6 +173,28 @@ inline Adafruit_NeoPixel &rgb() {
 }
 inline Imu &imu() { static Imu value; return value; }
 inline Magnetometer &magnetometer() { static Magnetometer value; return value; }
+// Initialize shared GPIO, ADC and I2C only. Peripherals remain explicit.
+inline void begin() {
+  pinMode(pin::button_a, INPUT_PULLUP); pinMode(pin::button_b, INPUT_PULLUP);
+  pinMode(pin::light, INPUT); pinMode(pin::microphone, INPUT);
+  analogReadResolution(12);
+  analogSetPinAttenuation(pin::light, ADC_11db);
+  analogSetPinAttenuation(pin::microphone, ADC_11db);
+  Wire.begin(pin::i2c_sda, pin::i2c_scl, 100000); Wire.setTimeOut(25);
+}
+inline bool beginDisplay() {
+  if (!detail::probe(i2c::display) ||
+      !display().begin(SSD1306_SWITCHCAPVCC, i2c::display, false, false)) return false;
+  display().clearDisplay(); display().setTextSize(1);
+  display().setTextColor(SSD1306_WHITE); display().setCursor(0, 0); display().display();
+  return true;
+}
+inline void beginRGB(uint8_t brightness = 32) {
+  rgb().begin(); rgb().setBrightness(brightness); rgb().clear(); rgb().show();
+}
+inline void beginBuzzer() {
+  ledcSetup(0, 880, 10); ledcAttachPin(pin::buzzer, 0); ledcWrite(0, 0);
+}
 inline uint32_t i2cErrorCount() { return detail::errors(); }
 inline bool buttonA() { return digitalRead(pin::button_a) == LOW; }
 inline bool buttonB() { return digitalRead(pin::button_b) == LOW; }
@@ -180,10 +211,17 @@ inline int soundLevel(uint16_t windowMs = 20) {
   } while (millis() - started < windowMs);
   return high - low;
 }
-inline uint16_t touch(TouchPad pad) {
-  static const uint8_t pins[] = {27, 14, 12, 13, 15, 4};
+inline uint8_t touchPin(TouchPad pad) {
+  static const uint8_t pins[] = {
+    pin::touch_p, pin::touch_y, pin::touch_t,
+    pin::touch_h, pin::touch_o, pin::touch_n
+  };
   const uint8_t index = static_cast<uint8_t>(pad);
-  return index < 6 ? touchRead(pins[index]) : 0;
+  return index < 6 ? pins[index] : 0xff;
+}
+inline uint16_t touch(TouchPad pad) {
+  const uint8_t gpio = touchPin(pad);
+  return gpio == 0xff ? 0 : touchRead(gpio);
 }
 inline void setRGB(uint8_t red, uint8_t green, uint8_t blue) {
   rgb().fill(rgb().Color(red, green, blue)); rgb().show();
@@ -192,25 +230,5 @@ inline void startTone(uint16_t frequency) { ledcWriteTone(0, frequency); }
 inline void stopTone() { ledcWrite(0, 0); }
 inline void beep(uint16_t frequency = 880, uint16_t durationMs = 80) {
   startTone(frequency); delay(durationMs); stopTone();
-}
-struct InitResult { bool display = false, imu = false, magnetometer = false; };
-inline InitResult begin(uint8_t brightness = 32) {
-  pinMode(pin::button_a, INPUT_PULLUP); pinMode(pin::button_b, INPUT_PULLUP);
-  pinMode(pin::light, INPUT); pinMode(pin::microphone, INPUT);
-  analogReadResolution(12);
-  analogSetPinAttenuation(pin::light, ADC_11db);
-  analogSetPinAttenuation(pin::microphone, ADC_11db);
-  ledcSetup(0, 880, 10); ledcAttachPin(pin::buzzer, 0); stopTone();
-  Wire.begin(pin::i2c_sda, pin::i2c_scl, 100000); Wire.setTimeOut(25);
-  rgb().begin(); rgb().setBrightness(brightness); rgb().clear(); rgb().show();
-  InitResult result;
-  result.display = detail::probe(i2c::display) &&
-    display().begin(SSD1306_SWITCHCAPVCC, i2c::display, false, false);
-  if (result.display) {
-    display().clearDisplay(); display().setTextSize(1);
-    display().setTextColor(SSD1306_WHITE); display().setCursor(0, 0); display().display();
-  }
-  result.imu = imu().begin(); result.magnetometer = magnetometer().begin();
-  return result;
 }
 } // namespace matrixbit

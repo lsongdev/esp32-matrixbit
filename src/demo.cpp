@@ -4,7 +4,6 @@
 #include <Adafruit_SSD1306.h>
 #include <Adafruit_NeoPixel.h>
 #include <math.h>
-#include <esp_wifi.h>
 
 #include "matrixbit.h"
 
@@ -12,7 +11,10 @@ namespace {
 
 // These analog/touch connections follow the compatible mPython board.
 // Their response still needs confirmation on the attached Matrix:bit revision.
-constexpr uint8_t touchPins[] = {27, 14, 12, 13, 15, 4};
+constexpr uint8_t touchPins[] = {
+  matrixbit::pin::touch_p, matrixbit::pin::touch_y, matrixbit::pin::touch_t,
+  matrixbit::pin::touch_h, matrixbit::pin::touch_o, matrixbit::pin::touch_n
+};
 constexpr char touchNames[] = "PYTHON";
 constexpr uint8_t pageCount = 5;
 
@@ -55,9 +57,6 @@ uint16_t touchValues[6] = {};
 int wifiNetworks = -1;
 bool wifiScanning = false;
 uint32_t wifiStartedAt = 0;
-volatile bool wifiScanFinished = false;
-volatile uint32_t wifiScanStatus = 0;
-volatile uint16_t wifiScanCount = 0;
 uint32_t buzzerUntil = 0;
 
 void sampleSensors()
@@ -105,30 +104,32 @@ void startWifiScan()
   WiFi.disconnect(false, false);
   WiFi.setSleep(false);
   WiFi.scanDelete();
-  wifi_scan_config_t config = {};
-  config.show_hidden = true;
-  config.scan_type = WIFI_SCAN_TYPE_ACTIVE;
-  config.scan_time.active.min = 100;
-  config.scan_time.active.max = 300;
-  wifiScanFinished = false;
-  const esp_err_t result = esp_wifi_scan_start(&config, false);
-  wifiScanning = result == ESP_OK;
+  const int result = WiFi.scanNetworks(true, true);
   wifiStartedAt = millis();
+  wifiScanning = result == WIFI_SCAN_RUNNING;
   if (!wifiScanning) {
-    wifiNetworks = -2;
-    Serial.printf("[WIFI] scan start failed: %s\n", esp_err_to_name(result));
+    wifiNetworks = result >= 0 ? result : -2;
+    Serial.printf("[WIFI] scan start result=%d\n", result);
+    WiFi.scanDelete();
+    WiFi.mode(WIFI_OFF);
   }
 }
 
 void updateWifiScan()
 {
   if (!wifiScanning) return;
-  if (!wifiScanFinished && millis() - wifiStartedAt < 20000) return;
-  wifiNetworks = wifiScanFinished && wifiScanStatus == 0 ? wifiScanCount : -2;
+  const int result = WiFi.scanComplete();
+  if (result == WIFI_SCAN_RUNNING) {
+    if (millis() - wifiStartedAt < 20000) return;
+    wifiNetworks = -2;
+    wifiScanning = false;
+    Serial.println("[WIFI] scan timeout");
+    WiFi.mode(WIFI_OFF);
+    return;
+  }
+  wifiNetworks = result >= 0 ? result : -2;
   wifiScanning = false;
-  if (!wifiScanFinished) esp_wifi_scan_stop();
-  Serial.printf("[WIFI] scan=%d network(s), driver_status=%lu, event=%s; reception only\n",
-                wifiNetworks, static_cast<unsigned long>(wifiScanStatus), wifiScanFinished ? "received" : "timeout");
+  Serial.printf("[WIFI] scan=%d network(s); reception only\n", wifiNetworks);
   WiFi.scanDelete();
   WiFi.mode(WIFI_OFF);
 }
@@ -169,7 +170,7 @@ void drawDisplay()
   display.setTextColor(SSD1306_WHITE);
   display.setTextSize(1);
   display.setCursor(0, 0);
-  display.printf("MATRIXBIT TEST %u/%u", page + 1, pageCount);
+  display.printf("MATRIXBIT DEMO %u/%u", page + 1, pageCount);
   display.drawLine(0, 9, 127, 9, SSD1306_WHITE);
   display.setCursor(0, 12);
   const bool imuFresh = imuSampleValid && millis() - lastImuAt < 1500;
@@ -240,15 +241,14 @@ void setup()
 {
   Serial.begin(115200);
   delay(300);
-  Serial.println("\nMatrix:bit hardware diagnostics");
+  Serial.println("\nMatrix:bit demo");
   Serial.printf("[ESP32] flash=%u bytes CPU=%u MHz\n", ESP.getFlashChipSize(), ESP.getCpuFreqMHz());
-  const auto resources = matrixbit::begin();
-  oledReady = resources.display; imuReady = resources.imu; magReady = resources.magnetometer;
-  WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
-    wifiScanStatus = info.wifi_scan_done.status;
-    wifiScanCount = info.wifi_scan_done.number;
-    wifiScanFinished = true;
-  }, ARDUINO_EVENT_WIFI_SCAN_DONE);
+  matrixbit::begin();
+  matrixbit::beginRGB();
+  matrixbit::beginBuzzer();
+  oledReady = matrixbit::beginDisplay();
+  imuReady = matrixbit::imu().begin();
+  magReady = matrixbit::magnetometer().begin();
   for (uint8_t address = 1; address < 0x7f; ++address) {
     Wire.beginTransmission(address);
     if (Wire.endTransmission() == 0) Serial.printf("[I2C] ACK 0x%02X\n", address);

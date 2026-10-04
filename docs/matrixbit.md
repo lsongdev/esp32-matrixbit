@@ -107,7 +107,7 @@ pio run -e demo -t upload --upload-port /dev/ttyACM0
 pio device monitor --port /dev/ttyACM0
 ```
 
-A切换5页（概览、IMU、磁力计、模拟量、触摸）；B短鸣并重启RGB循环。启动时屏幕全亮及棋盘格测试，RGB轮流全红/绿/蓝和三颗独立白灯。串口 `r` 短暂反色屏幕，`w` 重新扫描Wi-Fi。
+Demo 启动后显示8项资源菜单。A短按下一项、长按上一项；B短按进入/执行、长按返回。Wi-Fi 页面支持扫描、浏览SSID、查看RSSI与加密标记。详细说明见 [菜单操作说明](menu.md)。启动时保留屏幕全亮、棋盘格和RGB循环。
 
 本次实板验证：
 
@@ -121,7 +121,7 @@ A切换5页（概览、IMU、磁力计、模拟量、触摸）；B短鸣并重�
 | Wi-Fi | 扫描收到37–39个网络；未验证联网 |
 | 蓝牙 | 未验证 |
 
-Demo 的 Wi-Fi 扫描直接使用 Arduino `WiFi.scanNetworks(..., async=true)` / `scanComplete()`；网络功能没有加入 `matrixbit.h`。
+Demo 使用 ESP32 `esp_wifi_scan_start(..., false)` 和扫描完成事件异步扫描Wi-Fi，并读取SSID/RSSI/加密类型；扫描完成后关闭无线。网络功能没有加入 `matrixbit.h`。
 
 ## 参考资料
 

@@ -4,6 +4,9 @@
 #include <Adafruit_SSD1306.h>
 #include <Adafruit_NeoPixel.h>
 #include <math.h>
+#include <esp_wifi.h>
+#include "oled_menu.h"
+#include "menu_assets.h"
 
 #include "matrixbit.h"
 
@@ -16,7 +19,20 @@ constexpr uint8_t touchPins[] = {
   matrixbit::pin::touch_h, matrixbit::pin::touch_o, matrixbit::pin::touch_n
 };
 constexpr char touchNames[] = "PYTHON";
-constexpr uint8_t pageCount = 5;
+enum Page : uint8_t { Status, Imu, Magnetic, Analog, Touch, Rgb, Buzzer, Wifi };
+const oled_menu::Item menuItems[] = {
+  {"Status", menu_assets::bitmap_icon_battery},
+  {"IMU", menu_assets::bitmap_icon_3dcube},
+  {"Magnetometer", menu_assets::bitmap_icon_gps_speed},
+  {"Light / Sound", menu_assets::bitmap_icon_dashboard},
+  {"Touch", menu_assets::bitmap_icon_knob_over_oled},
+  {"RGB LEDs", menu_assets::bitmap_icon_fireworks},
+  {"Buzzer", menu_assets::bitmap_icon_turbo},
+  {"Wi-Fi", menu_assets::bitmap_icon_parksensor}
+};
+constexpr uint8_t pageCount = sizeof(menuItems) / sizeof(menuItems[0]);
+oled_menu::Menu menu(menuItems, pageCount);
+bool inMenu = true;
 
 Adafruit_SSD1306 &display = matrixbit::display();
 Adafruit_NeoPixel &pixels = matrixbit::rgb();
@@ -29,6 +45,8 @@ struct Button {
   int raw = HIGH;
   uint32_t changedAt = 0;
   uint32_t presses = 0;
+  uint32_t pressedAt = 0;
+  bool held = false;
 };
 
 Button buttonA{matrixbit::pin::button_a, "A"};
@@ -57,6 +75,13 @@ uint16_t touchValues[6] = {};
 int wifiNetworks = -1;
 bool wifiScanning = false;
 uint32_t wifiStartedAt = 0;
+constexpr uint16_t wifiCapacity = 24;
+struct WifiResult { char ssid[33] = {}; int32_t rssi = 0; bool secured = false; };
+WifiResult wifiResults[wifiCapacity];
+uint16_t wifiResultCount = 0, wifiSelected = 0;
+volatile bool wifiFinished = false;
+volatile uint32_t wifiStatus = 0;
+const char *wifiError = nullptr;
 uint32_t buzzerUntil = 0;
 
 void sampleSensors()
@@ -99,39 +124,87 @@ void showRgbStage()
 void startWifiScan()
 {
   if (wifiScanning) return;
+  wifiError = nullptr;
+  wifiResultCount = 0; wifiSelected = 0; wifiNetworks = -1;
   WiFi.mode(WIFI_STA);
-  WiFi.setAutoReconnect(false);
-  WiFi.disconnect(false, false);
-  WiFi.setSleep(false);
+  WiFi.setAutoReconnect(false); WiFi.disconnect(false, false); WiFi.setSleep(false);
   WiFi.scanDelete();
-  const int result = WiFi.scanNetworks(true, true);
+  wifi_scan_config_t config = {};
+  config.show_hidden = true;
+  config.scan_type = WIFI_SCAN_TYPE_ACTIVE;
+  config.scan_time.active.min = 100; config.scan_time.active.max = 300;
+  wifiFinished = false;
+  const esp_err_t result = esp_wifi_scan_start(&config, false);
   wifiStartedAt = millis();
-  wifiScanning = result == WIFI_SCAN_RUNNING;
+  wifiScanning = result == ESP_OK;
   if (!wifiScanning) {
-    wifiNetworks = result >= 0 ? result : -2;
-    Serial.printf("[WIFI] scan start result=%d\n", result);
-    WiFi.scanDelete();
+    wifiNetworks = -2; wifiError = "Scan start failed";
+    Serial.printf("[WIFI] start failed: %s\n", esp_err_to_name(result));
     WiFi.mode(WIFI_OFF);
-  }
+  } else Serial.println("[WIFI] scanning...");
 }
 
 void updateWifiScan()
 {
   if (!wifiScanning) return;
-  const int result = WiFi.scanComplete();
-  if (result == WIFI_SCAN_RUNNING) {
-    if (millis() - wifiStartedAt < 20000) return;
-    wifiNetworks = -2;
-    wifiScanning = false;
-    Serial.println("[WIFI] scan timeout");
-    WiFi.mode(WIFI_OFF);
-    return;
+  if (!wifiFinished && millis() - wifiStartedAt < 20000) return;
+  if (!wifiFinished) {
+    esp_wifi_scan_stop(); wifiError = "Scan timed out";
+  } else if (wifiStatus != 0) wifiError = "Scan failed";
+  else {
+    // Arduino's scan-done handler already moves the native AP list into its cache.
+    const int total = WiFi.scanComplete();
+    if (total < 0) wifiError = "Read results failed";
+    else {
+      wifiNetworks = total;
+      wifiResultCount = min(static_cast<uint16_t>(total), wifiCapacity);
+      for (uint16_t i = 0; i < wifiResultCount; ++i) {
+        String ssid; uint8_t auth; int32_t rssi, channel; uint8_t *bssid;
+        if (!WiFi.getNetworkInfo(i, ssid, auth, rssi, bssid, channel)) {
+          wifiError = "Read results failed"; wifiResultCount = 0; break;
+        }
+        ssid.toCharArray(wifiResults[i].ssid, sizeof(wifiResults[i].ssid));
+        wifiResults[i].rssi = rssi; wifiResults[i].secured = auth != WIFI_AUTH_OPEN;
+      }
+    }
   }
-  wifiNetworks = result >= 0 ? result : -2;
   wifiScanning = false;
-  Serial.printf("[WIFI] scan=%d network(s); reception only\n", wifiNetworks);
+  if (wifiError) { wifiNetworks = -2; esp_wifi_clear_ap_list(); }
   WiFi.scanDelete();
+  Serial.printf("[WIFI] found=%d showing=%u error=%s\n", wifiNetworks, wifiResultCount, wifiError ? wifiError : "none");
+  for (uint16_t i = 0; i < wifiResultCount; ++i)
+    Serial.printf("  %s %d dBm %s\n", wifiResults[i].ssid,
+                  wifiResults[i].rssi, wifiResults[i].secured ? "secured" : "open");
   WiFi.mode(WIFI_OFF);
+}
+
+void drawWifi()
+{
+  display.printf("WiFi: %s", wifiScanning ? "scanning..." : "");
+  if (!wifiScanning && !wifiError) display.printf("%d found", wifiNetworks < 0 ? 0 : wifiNetworks);
+  display.drawLine(0, 9, 127, 9, SSD1306_WHITE);
+  if (wifiScanning) {
+    display.setCursor(0, 18); display.print("Please wait...\nHold B to return");
+  } else if (wifiError || !wifiResultCount) {
+    display.setCursor(0, 18); display.println(wifiError ? wifiError : "No networks found");
+  } else {
+    const uint16_t first = wifiSelected / 3 * 3;
+    for (uint16_t row = 0; row < 3 && first + row < wifiResultCount; ++row) {
+      const uint16_t index = first + row;
+      const int y = 12 + row * 12;
+      if (index == wifiSelected) display.fillRect(0, y - 1, 128, 10, SSD1306_WHITE);
+      display.setTextColor(index == wifiSelected ? SSD1306_BLACK : SSD1306_WHITE);
+      display.setCursor(1, y);
+      const char *ssid = wifiResults[index].ssid;
+      display.printf("%.20s", *ssid ? ssid : "<hidden>");
+    }
+    display.setTextColor(SSD1306_WHITE); display.setCursor(0, 46);
+    const auto &network = wifiResults[wifiSelected];
+    display.printf("%u/%u %ddBm %s", wifiSelected + 1, wifiResultCount,
+                   network.rssi, network.secured ? "LOCK" : "OPEN");
+  }
+  display.setCursor(0, 56); display.print("B:scan Hold B:back");
+  display.display();
 }
 
 void beep(uint32_t frequency)
@@ -140,50 +213,77 @@ void beep(uint32_t frequency)
   buzzerUntil = millis() + 100;
 }
 
+void handleButton(const Button &button, bool held)
+{
+  const bool isA = button.pin == matrixbit::pin::button_a;
+  if (inMenu) {
+    if (isA) { if (held) menu.previous(); else menu.next(); }
+    else {
+      if (held) return;
+      page = menu.selected(); inMenu = false;
+      if (page == Wifi) startWifiScan();
+      if (page == Buzzer) beep(880);
+      Serial.printf("[MENU] open %s\n", menuItems[page].label);
+    }
+  } else if (!isA && held) {
+    inMenu = true;
+    Serial.println("[MENU] back");
+  } else if (page == Wifi) {
+    if (isA && wifiResultCount && !wifiScanning) {
+      wifiSelected = (wifiSelected + wifiResultCount + (held ? -1 : 1)) % wifiResultCount;
+    } else if (!isA) startWifiScan();
+  } else if (isA) {
+    page = (page + pageCount + (held ? -1 : 1)) % pageCount;
+    if (page == Wifi) startWifiScan();
+  } else {
+    beep(page == Buzzer ? 880 : 1320);
+    if (page == Rgb || page == Status) {
+      rgbStage = 0; rgbChangedAt = millis(); showRgbStage();
+    }
+    if (page == Status && !wifiScanning) startWifiScan();
+  }
+}
+
 void updateButton(Button &button, uint32_t now)
 {
   const int raw = digitalRead(button.pin);
-  if (raw != button.raw) {
-    button.raw = raw;
-    button.changedAt = now;
+  if (raw != button.raw) { button.raw = raw; button.changedAt = now; }
+  if (raw != button.stable && now - button.changedAt >= 25) {
+    button.stable = raw;
+    if (raw == LOW) {
+      ++button.presses; button.pressedAt = now; button.held = false;
+    } else if (!button.held) handleButton(button, false);
   }
-  if (raw == button.stable || now - button.changedAt < 25) return;
-  button.stable = raw;
-  if (raw == LOW) {
-    ++button.presses;
-    if (button.pin == matrixbit::pin::button_a) page = (page + 1) % pageCount;
-    else {
-      beep(1320);
-      rgbStage = 0;
-      rgbChangedAt = now;
-      showRgbStage();
-    }
+  if (button.stable == LOW && button.raw == LOW && !button.held && now - button.pressedAt >= 650) {
+    button.held = true;
+    handleButton(button, true);
   }
-  Serial.printf("[BUTTON] %s %s; presses=%lu\n", button.name,
-                raw == LOW ? "pressed" : "released", static_cast<unsigned long>(button.presses));
 }
 
 void drawDisplay()
 {
   if (!oledReady) return;
+  if (inMenu) { menu.draw(display); display.display(); return; }
   display.clearDisplay();
+  display.setTextWrap(false);
   display.setTextColor(SSD1306_WHITE);
   display.setTextSize(1);
   display.setCursor(0, 0);
-  display.printf("MATRIXBIT DEMO %u/%u", page + 1, pageCount);
+  if (page == Wifi) { drawWifi(); return; }
+  display.printf("%s", menuItems[page].label);
   display.drawLine(0, 9, 127, 9, SSD1306_WHITE);
   display.setCursor(0, 12);
   const bool imuFresh = imuSampleValid && millis() - lastImuAt < 1500;
   const bool magFresh = magSampleValid && millis() - lastMagAt < 1500;
-  if (page == 0) {
+  if (page == Status) {
     display.printf("A:%s %lu B:%s %lu\n", buttonA.stable == LOW ? "DN" : "UP",
                    static_cast<unsigned long>(buttonA.presses), buttonB.stable == LOW ? "DN" : "UP",
                    static_cast<unsigned long>(buttonB.presses));
     display.printf("RGB: %s\n", rgbStageName());
     display.printf("IMU:%s MAG:%s\n", imuFresh ? "DATA" : "WAIT", magFresh ? "DATA" : "WAIT");
     display.printf("WiFi: %d  I2Cerr:%lu\n", wifiNetworks, static_cast<unsigned long>(matrixbit::i2cErrorCount()));
-    display.print("A=page B=beep");
-  } else if (page == 1) {
+    display.print("Hold B: menu");
+  } else if (page == Imu) {
     if (!imuFresh) {
       display.print("IMU NO DATA\nWaiting for samples");
     } else {
@@ -193,7 +293,7 @@ void drawDisplay()
       display.printf("gx%+.1f gy%+.1f\n", angularRate[0], angularRate[1]);
       display.printf("gz%+.1f d/s", angularRate[2]);
     }
-  } else if (page == 2) {
+  } else if (page == Magnetic) {
     display.printf("MAG %s (uT)\n", magFresh ? "DATA" : "NO DATA");
     if (!magFresh) {
       display.print("Waiting for samples");
@@ -201,17 +301,21 @@ void drawDisplay()
       display.printf("X %+.2f\nY %+.2f\nZ %+.2f\n", magneticField[0], magneticField[1], magneticField[2]);
       display.print("Rotate to check axes");
     }
-  } else if (page == 3) {
+  } else if (page == Analog) {
     display.printf("ADC39 light: %d\n", lightValue);
     display.printf("ADC36 mic p-p: %d\n", micAmplitude);
     display.print("Cover light / clap\n");
     display.print("Pins need confirming");
-  } else {
+  } else if (page == Touch) {
     display.print("TOUCH raw values\n");
     for (size_t i = 0; i < 6; ++i) {
       display.printf("%c:%u%s", touchNames[i], touchValues[i], i % 2 == 1 ? "\n" : " ");
     }
     display.print("Touch pads to compare");
+  } else if (page == Rgb) {
+    display.printf("%s\n3 LEDs GPIO17\nR/G/B + single white\nB: restart cycle\nHold B: menu", rgbStageName());
+  } else if (page == Buzzer) {
+    display.print("GPIO16 / LEDC0\n880 Hz, 100 ms\nB: play tone\nHold B: menu");
   }
   // A moving marker plus border makes pixel addressing and refresh visible.
   display.drawRect(0, 10, 128, 54, SSD1306_WHITE);
@@ -249,6 +353,10 @@ void setup()
   oledReady = matrixbit::beginDisplay();
   imuReady = matrixbit::imu().begin();
   magReady = matrixbit::magnetometer().begin();
+  WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t info) {
+    wifiStatus = info.wifi_scan_done.status;
+    wifiFinished = true;
+  }, ARDUINO_EVENT_WIFI_SCAN_DONE);
   for (uint8_t address = 1; address < 0x7f; ++address) {
     Wire.beginTransmission(address);
     if (Wire.endTransmission() == 0) Serial.printf("[I2C] ACK 0x%02X\n", address);
@@ -275,8 +383,8 @@ void setup()
   }
   beep(880);
   Serial.println("[BUZZER] 880 Hz/100 ms sent; listening confirmation required");
-  Serial.println("[HELP] A=next page, B=beep/restart RGB; serial r=invert OLED, w=WiFi scan");
-  startWifiScan();
+  Serial.println("[HELP] A=next, hold A=previous, B=open/action, hold B=menu; serial n/p/o/b=menu controls, w=WiFi scan, r=invert OLED");
+  drawDisplay();
 }
 
 void loop()
@@ -315,7 +423,11 @@ void loop()
   if (now - displayAt >= 200) { displayAt = now; drawDisplay(); }
   while (Serial.available()) {
     const char command = Serial.read();
-    if (command == 'w') startWifiScan();
+    if (command == 'n') handleButton(buttonA, false);
+    if (command == 'p') handleButton(buttonA, true);
+    if (command == 'o') handleButton(buttonB, false);
+    if (command == 'b') handleButton(buttonB, true);
+    if (command == 'w') { page = Wifi; inMenu = false; startWifiScan(); }
     if (command == 'r' && oledReady) {
       // Briefly invert all panel pixels so the output can be checked again.
       display.invertDisplay(true);

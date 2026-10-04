@@ -1,8 +1,22 @@
 # Matrix:bit 资源使用说明
 
-适用于本项目的经典 ESP32 Matrix:bit。应用只需 `#include "matrixbit.h"`；板级 API 保持轻量，不重新包装 Arduino 生态。
+适用于本项目的经典 ESP32 Matrix:bit。应用只需 `#include <matrixbit.h>`；板级 API 保持轻量，不重新包装 Arduino 生态。
 
-依赖由 PlatformIO 自动安装：Adafruit SSD1306、Adafruit NeoPixel，以及 SSD1306 的 GFX/BusIO 依赖。
+本仓库的库位于 `lib/Matrixbit`，依赖在 `library.json` 声明：Adafruit SSD1306、Adafruit NeoPixel、GFX 和 BusIO。
+
+## 在其他项目使用
+
+每台开发机先安装一次共享 board、库及依赖：
+
+```sh
+python3 /home/lsong/Projects/matrixbit-demo/scripts/install.py
+```
+
+新项目保留常规的 `platform = espressif32 @ 7.1.3`、`framework = arduino`，设置 `board = matrixbit`，代码中 `#include <matrixbit.h>` 即可调用下面的 API，不必复制头文件或填写这些外设库的 `lib_deps`。
+
+安装器在 `~/.platformio/boards/` 和 `~/.platformio/lib/` 创建指向本仓库的链接，因此应保留本仓库位置；修改共享库后，其他项目重新编译即可使用。换机器或 CI 也要先执行安装器。自定义 PlatformIO Core 路径可通过 `--core-dir PATH` 指定。
+
+board 适用于已验证的经典 ESP32 / 8 MB Flash 版本，使用框架的 `default_8MB.csv` OTA 分区。已有设备切换分区需通过串口上传，文件系统数据可能需要重新构建。board 保留通用 ESP32 Arduino variant，I2C 的板载接线仍由 `matrixbit::begin()` 配置。
 
 ## 初始化
 
@@ -11,7 +25,7 @@
 需要什么就显式初始化什么：
 
 ```cpp
-#include "matrixbit.h"
+#include <matrixbit.h>
 
 void setup() {
   Serial.begin(115200);

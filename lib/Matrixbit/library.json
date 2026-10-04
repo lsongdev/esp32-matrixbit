@@ -1,0 +1,18 @@
+{
+  "name": "Matrixbit",
+  "version": "0.1.0",
+  "description": "Board resource API for the classic ESP32 Matrix:bit",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lsongdev/esp32-matrixbit.git"
+  },
+  "frameworks": ["arduino"],
+  "platforms": ["espressif32"],
+  "headers": ["matrixbit.h"],
+  "dependencies": {
+    "adafruit/Adafruit SSD1306": "^2.5.13",
+    "adafruit/Adafruit NeoPixel": "^1.12.3",
+    "adafruit/Adafruit GFX Library": "^1.11.0",
+    "adafruit/Adafruit BusIO": "^1.16.0"
+  }
+}

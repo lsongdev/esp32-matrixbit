@@ -8,7 +8,7 @@
 #include "oled_menu.h"
 #include "menu_assets.h"
 
-#include "matrixbit.h"
+#include <matrixbit.h>
 
 namespace {
 

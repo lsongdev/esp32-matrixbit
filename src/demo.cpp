@@ -5,7 +5,7 @@
 #include <Adafruit_NeoPixel.h>
 #include <math.h>
 #include <esp_wifi.h>
-#include "oled_menu.h"
+#include <OledMenu.h>
 #include "menu_assets.h"
 
 #include <matrixbit.h>
@@ -20,18 +20,28 @@ constexpr uint8_t touchPins[] = {
 };
 constexpr char touchNames[] = "PYTHON";
 enum Page : uint8_t { Status, Imu, Magnetic, Analog, Touch, Rgb, Buzzer, Wifi };
-const oled_menu::Item menuItems[] = {
-  {"Status", menu_assets::bitmap_icon_battery},
-  {"IMU", menu_assets::bitmap_icon_3dcube},
-  {"Magnetometer", menu_assets::bitmap_icon_gps_speed},
-  {"Light / Sound", menu_assets::bitmap_icon_dashboard},
-  {"Touch", menu_assets::bitmap_icon_knob_over_oled},
-  {"RGB LEDs", menu_assets::bitmap_icon_fireworks},
-  {"Buzzer", menu_assets::bitmap_icon_turbo},
-  {"Wi-Fi", menu_assets::bitmap_icon_parksensor}
+const oledmenu::Icon menuIcons[] = {
+  {menu_assets::bitmap_icon_battery, 16, 16},
+  {menu_assets::bitmap_icon_3dcube, 16, 16},
+  {menu_assets::bitmap_icon_gps_speed, 16, 16},
+  {menu_assets::bitmap_icon_dashboard, 16, 16},
+  {menu_assets::bitmap_icon_knob_over_oled, 16, 16},
+  {menu_assets::bitmap_icon_fireworks, 16, 16},
+  {menu_assets::bitmap_icon_turbo, 16, 16},
+  {menu_assets::bitmap_icon_parksensor, 16, 16}
+};
+const oledmenu::Item menuItems[] = {
+  {"Status", nullptr, &menuIcons[0]},
+  {"IMU", nullptr, &menuIcons[1]},
+  {"Magnetometer", nullptr, &menuIcons[2]},
+  {"Light / Sound", nullptr, &menuIcons[3]},
+  {"Touch", nullptr, &menuIcons[4]},
+  {"RGB LEDs", nullptr, &menuIcons[5]},
+  {"Buzzer", nullptr, &menuIcons[6]},
+  {"Wi-Fi", nullptr, &menuIcons[7]}
 };
 constexpr uint8_t pageCount = sizeof(menuItems) / sizeof(menuItems[0]);
-oled_menu::Menu menu(menuItems, pageCount);
+oledmenu::Menu menu(menuItems, pageCount);
 bool inMenu = true;
 
 Adafruit_SSD1306 &display = matrixbit::display();
@@ -263,7 +273,14 @@ void updateButton(Button &button, uint32_t now)
 void drawDisplay()
 {
   if (!oledReady) return;
-  if (inMenu) { menu.draw(display); display.display(); return; }
+  if (inMenu) {
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(SSD1306_WHITE);
+    menu.draw(display);
+    display.display();
+    return;
+  }
   display.clearDisplay();
   display.setTextWrap(false);
   display.setTextColor(SSD1306_WHITE);

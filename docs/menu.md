@@ -1,5 +1,7 @@
 # OLED 资源菜单
 
+Demo 使用 [arduino-oled-menu](https://github.com/lsongdev/arduino-oled-menu) 的 `oledmenu::Menu` Arduino 库，在 `platformio.ini` 固定到具体上游提交。菜单以纵向列表平滑滚动，保留八个 16×16 图标；图标许可和来源见 `third_party/arduino-oled-menu`。
+
 先烧录 `demo` 环境；默认 `matrixbit` 环境仍是简单资源接口示例。
 
 ```sh
@@ -17,7 +19,7 @@ pio device monitor --port /dev/ttyACM0
 | 资源页面 | 下一页 / 上一页 | 执行该页操作 | 返回菜单 |
 | Wi-Fi列表 | 下一网络 / 上一网络 | 重新扫描 | 返回菜单 |
 
-返回菜单保留原来选中的菜单项。列表显示上一项、当前项、下一项；中间框是当前选中项，右侧是滚动位置。
+返回菜单保留原来选中的菜单项。菜单显示纵向滚动列表，选中项带圆角框；列表较长时右侧显示滚动条。按键、去抖和长按仍由应用处理，菜单库只管理选择状态、动画和绘制。
 
 ## 页面
 
@@ -41,7 +43,8 @@ Wi-Fi 页面进入时自动扫描，扫描期间不阻塞菜单操作。结果�
 ## 实现和来源
 
 - `src/demo.cpp`：页面、按键事件、数据刷新和Wi-Fi扫描。
-- `include/oled_menu.h`：独立的 `oled_menu::Menu` 渲染器，接受 `Item` 数组（标签、16×16 XBM图标），提供 `next()`、`previous()`、`selected()`、`draw(screen)`。`draw()` 只绘制缓冲区，调用方负责 `screen.display()`。
-- `include/menu_assets.h`：菜单示例的图标，使用 `drawXBitmap()` 保持原始位序。
+- `platformio.ini`：`demo` 环境固定上游菜单库提交；基本 `matrixbit` 环境不依赖该菜单库。
+- `include/menu_assets.h`：原始 16×16 图标转换为 Adafruit GFX `drawBitmap()` 位序。
+- `src/demo.cpp`：将 A/B 键事件映射到菜单导航和页面操作，菜单库不接管按键或屏幕刷新。
 
-菜单布局和图标适配自 [lsongdev/arduino-oled-menu](https://github.com/lsongdev/arduino-oled-menu)，原作者upir，固定来源提交及MIT许可见 `third_party/arduino-oled-menu`。该仓库原本为u8g/u8g2 Arduino示例，本项目使用现有Adafruit SSD1306，不额外引入显示库。
+菜单库依赖 Adafruit GFX；显示仍使用项目现有的 Adafruit SSD1306。上游提交及 upir 的 MIT 许可见 `third_party/arduino-oled-menu`。

@@ -79,7 +79,7 @@ pio run -e demo -t upload --upload-port /dev/ttyACM0
 pio device monitor --port /dev/ttyACM0
 ```
 
-The demo opens an eight-item OLED menu: Status, IMU, Magnetometer, Light / Sound, Touch, RGB LEDs, Buzzer and Wi-Fi. Its three-row layout and icons are adapted from [arduino-oled-menu](https://github.com/lsongdev/arduino-oled-menu); attribution and the MIT license are in `third_party/arduino-oled-menu`.
+The demo opens an eight-item OLED menu: Status, IMU, Magnetometer, Light / Sound, Touch, RGB LEDs, Buzzer and Wi-Fi. Its animated scrolling menu uses the reusable [arduino-oled-menu](https://github.com/lsongdev/arduino-oled-menu) library, pinned to a reviewed revision. The MIT license and icon attribution are in `third_party/arduino-oled-menu`.
 
 - Short A: next item; hold A (650 ms): previous item.
 - Short B: open the selected page or run its action; hold B: return to the menu.
@@ -96,7 +96,7 @@ The connected board has a QMI8658 IMU and MMC5983MA magnetometer. The header als
 - `lib/Matrixbit/src/matrixbit.h`: wiring, shared peripheral objects and convenience functions.
 - `src/main.cpp`: example using a single include.
 - `src/demo.cpp`: menu and resource pages using the same API.
-- `include/oled_menu.h`: reusable three-row SSD1306 menu renderer.
+- `arduino-oled-menu`: pinned reusable menu library, installed for the `demo` environment.
 - `include/menu_assets.h`: attributed menu icons.
 - `docs/matrixbit.md`: resource documentation.
 

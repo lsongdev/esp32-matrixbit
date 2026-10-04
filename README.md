@@ -79,15 +79,16 @@ pio run -e demo -t upload --upload-port /dev/ttyACM0
 pio device monitor --port /dev/ttyACM0
 ```
 
-The demo opens an eight-item OLED menu: Status, IMU, Magnetometer, Light / Sound, Touch, RGB LEDs, Buzzer and Wi-Fi. Its animated scrolling menu uses the reusable [arduino-oled-menu](https://github.com/lsongdev/arduino-oled-menu) library, pinned to a reviewed revision. The MIT license and icon attribution are in `third_party/arduino-oled-menu`.
+The demo opens eleven independent features: Status, OLED, IMU, Magnetometer, Light, Microphone, Touch, RGB LEDs, Buzzer, IO control and Wi-Fi. Each feature starts when opened and stops when closed. Its animated scrolling menu uses the pinned [arduino-oled-menu](https://github.com/lsongdev/arduino-oled-menu) library; license and icon attribution are in `third_party/arduino-oled-menu`.
 
-- Short A: next item; hold A (650 ms): previous item.
-- Short B: open the selected page or run its action; hold B: return to the menu.
-- Wi-Fi: entering the page scans nearby networks. A browses SSIDs; B scans again. The page shows RSSI and OPEN/LOCK, and keeps up to 24 results. Scanning is asynchronous; returning to the menu stays available.
-- RGB / Buzzer: B restarts the LED cycle / plays a tone.
-- Serial commands: `n`/`p` move, `o` opens/runs the action, `b` returns, `w` opens the Wi-Fi scanner, `r` briefly inverts the OLED.
+- Short A: next menu item; hold A (650 ms): previous item. Inside a feature, A controls that feature's options.
+- Short B: open the selected feature or run its action; hold B: stop the feature and return.
+- IO control: A selects GPIO18/19/21/25/26/32/33; B toggles HIGH/LOW. Entry defaults to GPIO26 LOW. Changing pins or closing the feature drives the old pin LOW, then releases it as an input.
+- Wi-Fi: scans only while open; returning cancels an active scan and turns the radio off.
+- RGB / Buzzer: lights and sound run only in their own features and stop on exit.
+- Serial: `n`/`p` control A, `o` opens/runs the action, `b` exits, `w` switches to Wi-Fi through the same cleanup path.
 
-UI state and scanning remain in `src/demo.cpp`; the default `matrixbit` environment keeps the small board API example. [菜单操作说明（中文）](docs/menu.md) describes the page controls.
+`src/demo.cpp` handles navigation and display refresh; each feature lives in `src/demo/`. The default `matrixbit` environment keeps the small board API example. [菜单操作说明（中文）](docs/menu.md) describes controls, cleanup and IO pin selection.
 
 The connected board has a QMI8658 IMU and MMC5983MA magnetometer. The header also detects MMC5603NJ, but that variant has not been tested on hardware. Touch pad responses still need physical confirmation. See the documentation for complete verification results.
 
@@ -95,7 +96,8 @@ The connected board has a QMI8658 IMU and MMC5983MA magnetometer. The header als
 
 - `lib/Matrixbit/src/matrixbit.h`: wiring, shared peripheral objects and convenience functions.
 - `src/main.cpp`: example using a single include.
-- `src/demo.cpp`: menu and resource pages using the same API.
+- `src/demo.cpp`: menu navigation and feature activation.
+- `src/demo/`: independent resource features and their lifecycle interface.
 - `arduino-oled-menu`: pinned reusable menu library, installed for the `demo` environment.
 - `include/menu_assets.h`: attributed menu icons.
 - `docs/matrixbit.md`: resource documentation.

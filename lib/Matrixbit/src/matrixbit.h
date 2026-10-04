@@ -77,6 +77,16 @@ public:
     ready_ = detail::read(i2c::imu, 0x08, &enabled, 1) && (enabled & 3) == 3;
     return ready_;
   }
+  // Disable accelerometer and gyroscope acquisition; safe after a failed begin().
+  bool end() {
+    ready_ = false;
+    // ESP32 resets may leave acquisition enabled by the previous firmware.
+    if (id_ != 0x05) {
+      if (!detail::probe(i2c::imu)) return true;
+      if (!detail::read(i2c::imu, 0x00, &id_, 1) || id_ != 0x05) return false;
+    }
+    return detail::write(i2c::imu, 0x08, 0);
+  }
   // False means no new sample or a transfer failure; output is unchanged.
   bool read(ImuReading &output) {
     uint8_t status = 0, bytes[14];
@@ -116,6 +126,8 @@ public:
     ready_ = detail::write(i2c::magnetometer, is5983() ? 0x0b : 0x1d, 0);
     return ready_;
   }
+  // Measurements are single-shot, so there is no continuous acquisition to stop.
+  void end() { ready_ = false; }
   // Single measurement with automatic SET/RESET. Output is in microtesla.
   // Waits up to 25 ms for conversion (plus bounded I2C transfer time).
   bool read(Vector3 &output) {
@@ -192,8 +204,14 @@ inline bool beginDisplay() {
 inline void beginRGB(uint8_t brightness = 32) {
   rgb().begin(); rgb().setBrightness(brightness); rgb().clear(); rgb().show();
 }
+inline void endRGB() {
+  rgb().clear(); rgb().show(); pinMode(pin::rgb, INPUT);
+}
 inline void beginBuzzer() {
   ledcSetup(0, 880, 10); ledcAttachPin(pin::buzzer, 0); ledcWrite(0, 0);
+}
+inline void endBuzzer() {
+  ledcWrite(0, 0); ledcDetachPin(pin::buzzer); pinMode(pin::buzzer, INPUT);
 }
 inline uint32_t i2cErrorCount() { return detail::errors(); }
 inline bool buttonA() { return digitalRead(pin::button_a) == LOW; }

@@ -60,6 +60,17 @@ void setup() {
 
 GPIO0、GPIO2、GPIO12、GPIO15 都是 ESP32 strapping pins。板载电路按设计使用即可；如果外接电路，复位或上电时不要强制到不兼容的电平。
 
+## 停止外设
+
+可重复进入 / 退出功能时，使用板级停止 API：
+
+- `imu().end()`：停止加速度计和陀螺仪采集，并将 `ready()` 设为 `false`。I2C 关闭操作失败返回 `false`；即使失败，API 也不再读取，硬件采集是否停止需根据返回值判断。可在未调用 `begin()` 时使用，处理 ESP32 复位后传感器遗留的采集状态。
+- `magnetometer().end()`：清除就绪状态。该驱动使用单次测量，不存在后台连续采集。
+- `endRGB()`：熄灭全部灯珠，将数据引脚设为输入；下次调用 `beginRGB()` 可重新启用。
+- `endBuzzer()`：停止 LEDC 输出，解除 GPIO16 绑定并设为输入；下次调用 `beginBuzzer()` 可重新启用。
+
+这些函数不会结束共享 I2C 或 OLED。光线、麦克风和触摸使用同步读取 API，退出功能时停止调用即可；这不会切断传感器电源。
+
 ## 显示屏和 RGB
 
 `beginDisplay()` 探测并初始化 OLED，成功返回 `true`。`display()` 返回 `Adafruit_SSD1306&`，可使用原库的文字、线条、图形 API。`clearDisplay()` 和绘图函数只修改内存，调用 `display().display()` 才刷新屏幕；清屏后按需要 `setCursor(0, 0)`。内置默认字体不支持中文。
@@ -121,7 +132,7 @@ pio run -e demo -t upload --upload-port /dev/ttyACM0
 pio device monitor --port /dev/ttyACM0
 ```
 
-Demo 启动后显示8项资源菜单。A短按下一项、长按上一项；B短按进入/执行、长按返回。Wi-Fi 页面支持扫描、浏览SSID、查看RSSI与加密标记。详细说明见 [菜单操作说明](menu.md)。启动时保留屏幕全亮、棋盘格和RGB循环。
+Demo 启动后显示 11 项独立功能菜单：Status、OLED、IMU、Magnetometer、Light、Microphone、Touch、RGB LEDs、Buzzer、IO control 和 Wi-Fi。进入时启动功能，长按 B 返回时停止采样或输出并清理资源；主菜单不继续运行这些功能。屏幕全亮和棋盘格测试移到 OLED 菜单，光线和麦克风分别进入各自菜单。IO control 可选择未被板载资源占用的 GPIO，并切换高低电平。详细说明见 [菜单操作说明](menu.md)。
 
 本次实板验证：
 
@@ -135,7 +146,7 @@ Demo 启动后显示8项资源菜单。A短按下一项、长按上一项；B短
 | Wi-Fi | 扫描收到37–39个网络；未验证联网 |
 | 蓝牙 | 未验证 |
 
-Demo 使用 ESP32 `esp_wifi_scan_start(..., false)` 和扫描完成事件异步扫描Wi-Fi，并读取SSID/RSSI/加密类型；扫描完成后关闭无线。网络功能没有加入 `matrixbit.h`。
+Demo 的 Wi-Fi 模块使用 ESP32 `esp_wifi_scan_start(..., false)` 和扫描完成事件异步扫描，读取 SSID/RSSI/加密类型；退出页面时取消扫描、清除结果和回调并关闭无线。网络功能没有加入 `matrixbit.h`。
 
 ## 参考资料
 

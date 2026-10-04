@@ -1,76 +1,54 @@
-#include <Arduino.h>
-#include <Wire.h>
-
 #include "matrixbit.h"
 
-namespace {
-
-void scanI2C()
-{
-  Serial.println("Scanning I2C bus...");
-
-  unsigned int found = 0;
-
-  for (uint8_t address = 1; address < 0x7f; ++address) {
-    Wire.beginTransmission(address);
-    if (Wire.endTransmission() == 0) {
-      Serial.printf("  found 0x%02X\n", address);
-      ++found;
-    }
-  }
-
-  Serial.printf("I2C scan complete: %u device(s) found\n", found);
-}
-
-void printButtons(int a, int b)
-{
-  Serial.printf(
-    "buttons: A=%s B=%s\n",
-    a == LOW ? "pressed" : "released",
-    b == LOW ? "pressed" : "released"
-  );
-}
-
-} // namespace
+matrixbit::InitResult resources;
 
 void setup()
 {
   Serial.begin(115200);
-  delay(300);
-
-  pinMode(matrixbit::pin::button_a, INPUT_PULLUP);
-  pinMode(matrixbit::pin::button_b, INPUT_PULLUP);
-
-  Wire.begin(matrixbit::pin::i2c_sda, matrixbit::pin::i2c_scl);
-
-  Serial.println();
-  Serial.println("Matrix:bit / PlatformIO");
-  Serial.printf(
-    "I2C: SDA=%u SCL=%u\n",
-    matrixbit::pin::i2c_sda,
-    matrixbit::pin::i2c_scl
-  );
-
-  scanI2C();
-  printButtons(
-    digitalRead(matrixbit::pin::button_a),
-    digitalRead(matrixbit::pin::button_b)
-  );
+  resources = matrixbit::begin();
+  Serial.printf("OLED=%d IMU=%d MAG=%d (%s)\n", resources.display,
+                resources.imu, resources.magnetometer, matrixbit::magnetometer().name());
+  matrixbit::setRGB(0, 255, 0);
+  if (resources.display) {
+    matrixbit::display().println("Matrix:bit ready\nA=red B=blue/beep");
+    matrixbit::display().display();
+  }
 }
 
 void loop()
 {
-  static int lastA = HIGH;
-  static int lastB = HIGH;
-
-  const int a = digitalRead(matrixbit::pin::button_a);
-  const int b = digitalRead(matrixbit::pin::button_b);
-
+  static bool lastA = false, lastB = false;
+  static uint32_t sampledAt = 0;
+  const bool a = matrixbit::buttonA(), b = matrixbit::buttonB();
   if (a != lastA || b != lastB) {
-    printButtons(a, b);
-    lastA = a;
-    lastB = b;
+    matrixbit::setRGB(a ? 255 : 0, !a && !b ? 255 : 0, b ? 255 : 0);
+    if (b && !lastB) matrixbit::beep();
+    Serial.printf("A=%d B=%d\n", a, b);
+    lastA = a; lastB = b;
   }
-
-  delay(10);
+  if (millis() - sampledAt >= 1000) {
+    sampledAt = millis();
+    matrixbit::ImuReading motion;
+    matrixbit::Vector3 field;
+    const bool motionValid = matrixbit::imu().read(motion);
+    const bool fieldValid = matrixbit::magnetometer().read(field);
+    const int light = matrixbit::light(), sound = matrixbit::soundLevel();
+    if (motionValid) Serial.printf("accel_g=(%.3f,%.3f,%.3f) gyro_dps=(%.2f,%.2f,%.2f) temp_C=%.2f\n",
+      motion.acceleration.x, motion.acceleration.y, motion.acceleration.z,
+      motion.gyroscope.x, motion.gyroscope.y, motion.gyroscope.z, motion.temperature);
+    if (fieldValid) Serial.printf("mag_uT=(%.2f,%.2f,%.2f)\n", field.x, field.y, field.z);
+    Serial.printf("light=%d sound_p_p=%d I2C_errors=%lu\n", light, sound,
+                  static_cast<unsigned long>(matrixbit::i2cErrorCount()));
+    if (resources.display) {
+      auto &screen = matrixbit::display();
+      screen.clearDisplay(); screen.setCursor(0, 0);
+      screen.println("Matrix:bit\nA=red B=blue/beep");
+      if (motionValid) screen.printf("g %.2f %.2f %.2f\n", motion.acceleration.x, motion.acceleration.y, motion.acceleration.z);
+      else screen.println("IMU: no new data");
+      if (fieldValid) screen.printf("uT %.1f %.1f %.1f\n", field.x, field.y, field.z);
+      else screen.println("MAG: no data");
+      screen.printf("Light:%d Mic:%d", light, sound); screen.display();
+    }
+  }
+  delay(25);
 }

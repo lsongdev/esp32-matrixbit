@@ -1,90 +1,60 @@
 # esp32-matrixbit
 
-Minimal [PlatformIO](https://platformio.org/) starter project for the ESP32-based Matrix:bit board.
+A small PlatformIO project for the classic ESP32 Matrix:bit, with a header-only peripheral API.
 
-The goal is intentionally small: treat Matrix:bit as an ESP32 board, keep the board-specific layer to pin/address definitions, and use normal Arduino libraries for peripherals.
+Include **[matrixbit.h](include/matrixbit.h)** and call `matrixbit::begin()` to initialize the OLED, three RGB LEDs, buttons, buzzer, IMU, magnetometer, analog inputs and touch inputs. OLED and RGB helpers expose the original Adafruit library objects for drawing and individual LED control.
 
-## Hardware target
+**[资源和 API 使用文档（中文）](docs/matrixbit.md)** covers wiring, units, examples, initialization results and hardware verification status.
 
-This repository currently targets the classic ESP32 Matrix:bit V2.x family. Matrix:bit revisions exist, so verify the board revision before relying on peripheral details that are not listed here.
-
-Known wiring used by this project:
-
-| Peripheral | Connection |
-| --- | --- |
-| Button A | GPIO 0 |
-| Button B | GPIO 2 |
-| Buzzer | GPIO 16 |
-| RGB / NeoPixel data | GPIO 17 |
-| I2C SCL | GPIO 22 |
-| I2C SDA | GPIO 23 |
-| Magnetometer | I2C `0x30` |
-| OLED | I2C `0x3c` |
-| IMU | I2C `0x6b` |
-
-GPIO 0 and GPIO 2 are ESP32 boot-strapping pins. Avoid holding the buttons while resetting or powering on the board.
-
-References:
-
-- YFROBOT Matrix:bit wiki: https://yfrobot.com.cn/wiki/index.php?title=Matrix%3ABit%E4%B8%BB%E6%9D%BF
-- Matrix:bit V2.0 hardware summary: https://shop.tavir.hu/termek/alappanel/espressif/matrixbit-esp32-v2/
-
-## Getting started
-
-Install PlatformIO, connect the board over USB, then:
+## Quick start
 
 ```sh
 pio run
-pio run -t upload
-pio device monitor
+pio run -t upload --upload-port /dev/ttyACM0
+pio device monitor --port /dev/ttyACM0
 ```
 
-The default firmware initializes the shared I2C bus, scans all I2C addresses, and reports Button A/B changes over the serial monitor.
-
-A typical V2.0 board may report:
-
-```text
-found 0x30
-found 0x3C
-found 0x6B
-```
-
-That makes the starter firmware useful as a first hardware/revision check before adding display, IMU, RGB, or other drivers.
-
-## Project layout
-
-```text
-.
-├── include/
-│   └── matrixbit.h
-├── src/
-│   └── main.cpp
-└── platformio.ini
-```
-
-`matrixbit.h` contains only Matrix:bit-specific hardware constants. It deliberately does not wrap Arduino APIs or third-party peripheral libraries.
-
-For example:
+The default example displays sensor values, sets the RGB LEDs red while A is pressed, and blue with a short beep when B is pressed. The serial monitor runs at 115200 baud.
 
 ```cpp
-#include <Wire.h>
 #include "matrixbit.h"
 
-void setup()
-{
-  Wire.begin(matrixbit::pin::i2c_sda, matrixbit::pin::i2c_scl);
+void setup() {
+  const auto result = matrixbit::begin();
+  if (result.display) {
+    matrixbit::display().println("Hello Matrix:bit");
+    matrixbit::display().display();
+  }
+  matrixbit::setRGB(0, 32, 0);
+}
+
+void loop() {
+  matrixbit::ImuReading motion;
+  if (matrixbit::imu().read(motion)) {
+    // acceleration in g, gyroscope in degrees/second, temperature in Celsius
+  }
+  delay(20);
 }
 ```
 
-## PlatformIO board
+## Hardware diagnostics
 
-For now the project uses PlatformIO's standard `esp32dev` board definition:
-
-```ini
-[env:matrixbit]
-platform = espressif32
-board = esp32dev
-framework = arduino
+```sh
+pio run -e diagnostics -t upload --upload-port /dev/ttyACM0
+pio device monitor --port /dev/ttyACM0
 ```
 
-This keeps the project usable without inventing unverified flash/upload metadata. A dedicated `matrixbit.json` board definition can be added later once the exact flash and upload characteristics of the supported revision are verified.
+Press A to cycle status, IMU, magnetometer, analog and touch pages. B beeps and restarts the RGB cycle. Serial commands: `r` inverts the OLED briefly; `w` repeats the Wi-Fi scan.
+
+The connected board has a QMI8658 IMU and MMC5983MA magnetometer. The header also detects MMC5603NJ, but that variant has not been tested on hardware. Touch pad responses still need physical confirmation. See the documentation for complete verification results.
+
+## Layout and target
+
+- `include/matrixbit.h`: wiring, shared peripheral objects and convenience functions.
+- `src/main.cpp`: example using a single include.
+- `src/diagnostics.cpp`: interactive resource diagnostics using the same API.
+- `docs/matrixbit.md`: resource documentation.
+
+PlatformIO uses `esp32dev` with Arduino ESP32 2.x. The attached ESP32 has 8 MB physical flash; the current standard board configuration uses a 4 MB layout. Dependencies are declared in `platformio.ini`.
+
+Buttons use boot-strapping GPIO0 and GPIO2; avoid holding them during reset or power-on. Board revisions can differ; verify wiring before using this header on another revision.

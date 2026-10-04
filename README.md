@@ -52,7 +52,7 @@ The connected board has a QMI8658 IMU and MMC5983MA magnetometer. The header als
 
 - `include/matrixbit.h`: wiring, shared peripheral objects and convenience functions.
 - `src/main.cpp`: example using a single include.
-- `src/demo.cpp`: interactive resource diagnostics using the same API.
+- `src/demo.cpp`: interactive whole-board demo using the same API.
 - `docs/matrixbit.md`: resource documentation.
 
 PlatformIO is pinned to `espressif32 7.1.3` and uses the standard `esp32dev` target with Arduino-ESP32 2.0.17. The attached ESP32 has 8 MB physical flash; the current standard board configuration uses a 4 MB layout. Dependencies are declared in `platformio.ini`.
